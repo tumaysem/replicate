@@ -6,31 +6,19 @@ import torch
 from torch import nn,Tensor
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+from prompt import prompt
 import jsonlines
+from constants import SYSTEM_PROMPT,WINDOWS_LENGTH, SEQ_LEN, DECIMALS
+
 
 BATCH_SIZE = 8
-WINDOWS_LENGTH = 24
-PRED_LEN = 5
-SEQ_LEN = WINDOWS_LENGTH - PRED_LEN - 1
 NUM_WORKERS = 10
-TOP_K = 5
-DECIMALS = 3
-
-def calcute_lags(values:Tensor):
-    q_fft = torch.fft.rfft(values.contiguous(), dim=-1)
-    k_fft = torch.fft.rfft(values.contiguous(), dim=-1)
-    res = q_fft * torch.conj(k_fft)
-    corr = torch.fft.irfft(res, dim=-1)
-    mean_value = torch.mean(corr, dim=1)
-    _, lags = torch.topk(mean_value,TOP_K, dim=-1)
-    return lags
 
 
 class PriceDataset(Dataset):
     def __init__(self,window_len:int):
         self.window_len = window_len
         self.data = pd.read_csv(os.path.join(os.path.dirname(__file__),'data/prices.csv'),parse_dates=['date'])
-        self.tokens = self.data.columns[1:]
         self.tot_len = len(self.data) // (self.window_len) 
 
     def __getitem__(self, index) -> Tensor:
@@ -54,36 +42,17 @@ with jsonlines.open('output.jsonl', 'w') as writer:
             next_max_prices = batch[j,SEQ_LEN+1:].transpose(0,1).max(dim=1).values
             _,top_indice = next_max_prices.sub(current_prices).topk(1)
             
-            statistics.transpose_(0,1)
-            mins = statistics.min(dim=1).values
-            maxs = statistics.max(dim=1).values
-            medians = statistics.median(dim=1).values
-            lags = calcute_lags(statistics)
-            trends = statistics.diff(dim=1).sum(dim=1)
-                
-            mins_values_str = ', '.join([str(round(min,DECIMALS)) for min in mins.tolist()])
-            maxs_values_str = ', '.join([str(round(max,DECIMALS)) for max in maxs.tolist()])
-            median_values_str = ', '.join([str(round(median,DECIMALS)) for median in medians.tolist()])
-            lags_values_str = ', '.join([str(round(lag,DECIMALS)) for lag in lags.tolist()])
-            current_prices_str = ', '.join([str(round(price,DECIMALS)) for price in current_prices.tolist()])
-            trends_values_tr = ', '.join([ "up" if trend > 0 else "down" for trend in trends.tolist()])
+            user_prompt = prompt(statistics,current_prices)
             
             top_str = f'{{ "indice": {top_indice[0]}, "price": {round(next_max_prices[top_indice[0]].tolist(),DECIMALS)} }}'
             
-            prompt = (
-                f"[INST] <<SYS>> You are a code generator. Always output your answer in JSON. No pre-amble. Only token indice and price.<<SYS>>"
-                f"Forecast most profitable token for the next 5 hours from current prices and 16 hour statistics (min, max, lag, mean and trend) of 17 tokens ;"
-                f"min values are [{mins_values_str}], "
-                f"max values are [{maxs_values_str}], "
-                f"median values are [{median_values_str}], "
-                f"the trend of inputs are [{trends_values_tr}], "
-                f"top {TOP_K} lag token indexes are [{lags_values_str}] "
-                f"and  current prices are [{current_prices_str}]."
-                "[/INST]"
+            result = (
+                f"[INST] <<SYS>> {SYSTEM_PROMPT} <<SYS>> "
+                f"{user_prompt}[/INST]"
                 f"{top_str}"
             )        
             
-            writer.write({"text":prompt})
+            writer.write({"text":result})
 
 
         
