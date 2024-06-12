@@ -30,13 +30,13 @@ def prompt(sequence:Tensor,current:Tensor) -> str:
         trends_values_tr = ', '.join([ "up" if trend > 0 else "down" for trend in trends.tolist()])
 
         prompt = (
-            f"Forecast most profitable single token for the next {PRED_LEN} hours from information of {token_len} tokens for previous {seq_len} hours; "
+            f"Forecast most profitable single token for the next {PRED_LEN} hours from information in array of {token_len} token statistics for previous {seq_len} hours; "
             f"min values are [{mins_values_str}], "
             f"max values are [{maxs_values_str}], "
             f"median values are [{median_values_str}], "
             f"the trend of inputs are [{trends_values_tr}], "
             f"top {TOP_K} lag token indexes are [{lags_values_str}] "
-            f"and  current prices are [{current_prices_str}]."
+            f"and current prices are [{current_prices_str}]."
         )  
         
         return prompt
